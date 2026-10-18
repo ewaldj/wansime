@@ -35,7 +35,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "v1.60"
+VERSION = "v1.63"
 REORDER_MIN_DELAY = 10  # ms; netem reorder only works on top of a delay
 PROG = "wansime.py"
 CREDIT = "by Ewald Jeitler - https://www.jeitler.cc"
@@ -95,19 +95,19 @@ def _d(**kw):
 
 
 # direction A->B = upstream / OUT, B->A = downstream / IN
+# delay / jitter are one-way values per direction: RTT = A->B delay + B->A delay; rate in kbit/s
 PRESETS = {
-    "Clean link": (_d(), _d()),
-    "Metro WAN (5 ms)": (_d(delay=5, jitter=1), _d(delay=5, jitter=1)),
-    "Cross-country (50 ms RTT)": (_d(delay=25, jitter=3, loss=0.05), _d(delay=25, jitter=3, loss=0.05)),
-    "Transatlantic (90 ms RTT)": (_d(delay=45, jitter=4, loss=0.1), _d(delay=45, jitter=4, loss=0.1)),
-    "Intercontinental (300 ms RTT)": (_d(delay=150, jitter=10, loss=0.2), _d(delay=150, jitter=10, loss=0.2)),
-    "DSL 16/1": (_d(delay=15, jitter=2, rate=1000), _d(delay=15, jitter=2, rate=16000)),
-    "LTE": (_d(delay=35, jitter=15, loss=0.5, rate=10000), _d(delay=35, jitter=15, loss=0.5, rate=40000)),
-    "Satellite GEO (600 ms RTT)": (_d(delay=300, jitter=10, loss=0.5, rate=5000),
-                                   _d(delay=300, jitter=10, loss=0.5, rate=20000)),
-    "Congested WAN": (_d(delay=40, jitter=30, loss=2, reorder=1, rate=10000),
-                      _d(delay=40, jitter=30, loss=2, reorder=1, rate=10000)),
-    "Lossy 5 %": (_d(loss=5), _d(loss=5)),
+    "Baseline: no impairment": (_d(), _d()),
+    "RTT 20 ms, jitter 1 ms, loss 0.01 %": (_d(delay=10, jitter=1, loss=0.01), _d(delay=10, jitter=1, loss=0.01)),
+    "RTT 100 ms, jitter 3 ms, loss 0.1 %": (_d(delay=50, jitter=3, loss=0.1), _d(delay=50, jitter=3, loss=0.1)),
+    "RTT 300 ms, jitter 8 ms, loss 0.1 %": (_d(delay=150, jitter=8, loss=0.1), _d(delay=150, jitter=8, loss=0.1)),
+    "RTT 30 ms, jitter 2 ms, 1M up / 16M down": (_d(delay=15, jitter=2, rate=1000), _d(delay=15, jitter=2, rate=16000)),
+    "RTT 70 ms, jitter 10 ms, loss 0.3 %, 10M up / 40M down": (_d(delay=35, jitter=10, loss=0.3, rate=10000),
+                                                              _d(delay=35, jitter=10, loss=0.3, rate=40000)),
+    "RTT 600 ms, jitter 10 ms, loss 0.5 %, 5M up / 20M down": (_d(delay=300, jitter=10, loss=0.5, rate=5000),
+                                                              _d(delay=300, jitter=10, loss=0.5, rate=20000)),
+    "RTT 80 ms, jitter 30 ms, loss 2 %, reorder 1 %, 10M/10M": (_d(delay=40, jitter=30, loss=2, reorder=1, rate=10000),
+                                                                _d(delay=40, jitter=30, loss=2, reorder=1, rate=10000)),
 }
 
 

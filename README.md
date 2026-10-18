@@ -1,24 +1,22 @@
 # wansime — WAN Simulation made easy
 
-Single-file Python tool (standard library only) that simulates WAN links on Linux / Raspberry Pi with `tc netem`: delay, jitter, loss, reorder, duplicate, corrupt, rate limit and MTU per direction. It runs as a transparent L2 bridge between two Ethernet ports (or on a single interface) and is controlled from a full-screen terminal UI (TUI) and a web GUI at the same time, both with live traffic graphs.
+Single-file Python tool (standard library only) that simulates WAN links on Linux with `tc netem`: delay, jitter, loss, reorder, duplicate, corrupt, rate limit and MTU per direction. Runs as a transparent L2 bridge between two Ethernet ports or on a single interface. Control via curses TUI and web GUI (port 8082) at the same time.
 
 By Ewald Jeitler - https://www.jeitler.cc
 
-Current version: v1.60
+Current version: v1.63
 
 ## Features
 
-- Bridge mode: transparent L2 bridge between two ports, impairments per direction (A->B and B->A)
-- Single mode: one interface, OUT = egress, IN = ingress redirected to an IFB device
-- Delay, jitter, loss, consecutive (burst) loss, reorder, duplicate, corrupt, rate limit, MTU, all per direction
-- Presets (Metro, Transatlantic, DSL, LTE, Satellite, Congested, ...)
-- START / STOP without tearing down the setup; restore the original network state at any time
-- Changes are applied live (debounced, 0.6 s)
-- Bridge passes VLAN, STP, CDP, VTP, LLDP and 802.1X EAPOL frames
-- Live traffic graphs (IN / OUT per direction), CPU load, interface table in TUI and web GUI
-- USB network adapter watchdog and recovery (RTL8153 / `r8152`)
-- Runs headless as a systemd service
-- Python 3.8+, Linux (tested on Raspberry Pi 5), root required
+- Bridge mode (A <-> B, impairments per direction) and single-interface mode (egress + IFB ingress)
+- Delay, jitter, loss, consecutive loss, reorder, duplicate, corrupt, rate limit, MTU
+- START / STOP without removing the setup; restore of the original network state
+- Live apply of changes (debounce 0.6 s)
+- Bridge passes VLAN, STP, CDP, VTP, LLDP, 802.1X
+- Live IN / OUT traffic graphs, CPU load, interface table
+- USB NIC watchdog and recovery (RTL8153 / `r8152`)
+- systemd service (headless)
+- Python 3.8+, Linux (Raspberry Pi 5), root required
 
 ## Installation / Update
 
@@ -31,150 +29,148 @@ Installs `wansime.py` to `/usr/local/bin` as command `wansime`; running it again
 ### Requirements
 
 ```bash
-sudo wansime.py --install            # apt-get/dnf/yum: iproute2, ethtool, kernel modules sch_netem, bridge, ifb
+sudo wansime --install      # iproute2, ethtool, kernel modules sch_netem, bridge, ifb (apt-get / dnf / yum)
 ```
 
-At every start the script checks the requirements; if something is missing it lists it and offers to install it (`Install now? [Y/n]`). Without a terminal (service) it only reports the missing parts and exits.
-
-Root is required. Without root the script restarts itself through `sudo` and asks for the sudo password (interactive terminal only, otherwise it prints a hint and exits).
+The script checks the requirements at every start and offers to install missing ones (`Install now? [Y/n]`); without a terminal it only reports them and exits. Without root it restarts itself through `sudo` (interactive terminal only).
 
 ## Screenshots
 
-Web GUI (port 8082):
-
 ![wansime web GUI](screenshots/wansime-webgui.png)
-
-TUI (180 x 46 terminal, the layout adapts to the terminal size):
 
 ![wansime TUI](screenshots/wansime-tui.png)
 
-The screenshots show example values and simulated traffic (A->B about 400 Mbit/s, B->A about 25 Mbit/s, 40 ms delay, 5 ms jitter, 0.1 % loss).
+Example values, simulated traffic.
 
 ## Quick Start
 
 ```bash
-sudo wansime                         # TUI + web GUI on http://<ip>:8082/
-sudo wansime --install-service       # systemd service wansime.service (headless, web GUI on port 8082)
-sudo wansime --restore               # restore the original network state
+sudo wansime                    # TUI + web GUI on http://<ip>:8082/
+sudo wansime --install-service  # systemd service wansime.service (headless)
+sudo wansime --restore          # restore the original network state
 ```
 
-Workflow: choose mode and ports (TUI `b` / web setup row) -> START -> change WAN values (applied live) -> STOP / START as needed -> restore original state when finished.
+Workflow: setup (TUI `b` / web setup row) -> START -> change values -> STOP / START -> restore original state.
 
 ## Modes
 
-| Mode | What it does |
-|------|--------------|
-| **bridge** | Transparent L2 bridge `br0` between two Ethernet ports (A and B). Impairments are set per direction: A->B (egress on port B) and B->A (egress on port A). |
-| **single** | One interface, no bridge. **OUT** impairs locally generated traffic (egress). **IN** impairs locally received traffic (ingress redirected to an IFB device). |
-
-Directions are labelled with the interface names (e.g. `eth0 -> eth1`) in the GUI and the TUI.
+| Mode | Function |
+|------|----------|
+| **bridge** | L2 bridge `br0` between port A and B. A->B is shaped on the egress of port B, B->A on the egress of port A. |
+| **single** | One interface, no bridge. **OUT** = egress shaping, **IN** = ingress redirected to an IFB device. |
 
 ## Parameters (per direction)
 
 | Parameter | Range | Note |
 |-----------|-------|------|
-| Delay | 0-1000 ms | |
-| Jitter | 0-500 ms | normal distribution; needs a base delay |
-| Loss | 0-20 % | random loss |
-| Consecutive packet loss | 1-50 | average burst length in packets, 1 = independent loss (Gilbert-Elliott model, overall loss rate stays the configured Loss) |
-| Reorder | % | needs a delay |
-| Duplicate | % | |
-| Corrupt | % | |
+| Delay | 0-1000 ms | typeable up to 60000 |
+| Jitter | 0-500 ms | normal distribution, needs a base delay |
+| Loss | 0-20 % | random |
+| Consecutive packet loss | 1-50 | average burst length, 1 = independent loss (Gilbert-Elliott); Loss stays the overall rate |
+| Reorder | 0-50 % | needs a delay |
+| Duplicate | 0-20 % | |
+| Corrupt | 0-20 % | |
 | Rate limit | kbit/s, 0 = off | TUI accepts `512k`, `20m`, `1g` |
-| MTU | bytes, default = port MTU | |
+| MTU | 576-9100 B, default = port MTU | |
 
-- Values beyond the slider range can be typed (web GUI number field, TUI edit).
-- Jitter: tc refuses `delay 0ms 10ms distribution normal`; with jitter > 0 and delay 0 the delay is set to the jitter value and an info message says so. Packets sent closer together than the jitter overtake each other, so out-of-order packets appear even with Reorder = 0; use jitter 0 for strictly ordered delivery.
-- Reorder: if Reorder > 0 and the delay is below 10 ms, the delay is raised to 10 ms.
-- The queue limit is sized automatically from delay and rate.
-- MTU, bridge mode: both ports get the largest configured MTU (never below the original MTU). A direction with a smaller MTU is limited by a tc filter on its egress port that drops frames larger than MTU + 14 byte Ethernet header, without ICMP (path MTU discovery sees a black hole). Use together with "disable NIC offloads". USB adapters are taken down for an MTU change and checked afterwards; if the adapter stops responding, the USB recovery re-initializes it and applies the MTU again.
-- MTU, single mode: the MTU of the interface is set (OUT value only).
-- The MTU field shows the port's original MTU as default; Reset returns to it.
-- Presets (keep the MTU setting): Clean link, Metro WAN (5 ms), Cross-country (50 ms RTT), Transatlantic (90 ms RTT), Intercontinental (300 ms RTT), DSL 16/1, LTE, Satellite GEO (600 ms RTT), Congested WAN, Lossy 5 %.
-- Mirror: edits of one direction are copied to the other one (TUI `l`, web checkbox MIRROR).
+- Jitter > 0 with delay 0: delay is set to the jitter value (tc rejects `delay 0ms 10ms distribution normal`).
+- Jitter makes packets overtake each other, so out-of-order packets appear even with Reorder = 0.
+- Reorder > 0 with delay < 10 ms: delay is raised to 10 ms.
+- Queue limit is derived from delay and rate.
+- MTU, bridge: both ports get the largest configured MTU (never below the original). A direction with a smaller MTU is limited by a tc filter on its egress port that drops frames larger than MTU + 14 byte without ICMP (PMTUD black hole). Use with NIC offloads disabled. USB adapters are taken down for an MTU change; if one stops responding, the USB recovery re-initializes it and re-applies the MTU.
+- MTU, single: the interface MTU is set (OUT value only).
+- Mirror (TUI `l`, web MIRROR): edits are copied to the other direction.
+
+### Presets
+
+Delay and jitter are one-way per direction: RTT = A->B delay + B->A delay. Rate per direction, A->B = upstream. Presets keep the MTU setting.
+
+| Preset | Delay A->B / B->A | Jitter | Loss | Rate A->B / B->A | Other |
+|---|---|---|---|---|---|
+| Baseline: no impairment | 0 / 0 ms | 0 | 0 | - | |
+| RTT 20 ms, jitter 1 ms, loss 0.01 % | 10 / 10 ms | 1 ms | 0.01 % | - | |
+| RTT 100 ms, jitter 3 ms, loss 0.1 % | 50 / 50 ms | 3 ms | 0.1 % | - | |
+| RTT 300 ms, jitter 8 ms, loss 0.1 % | 150 / 150 ms | 8 ms | 0.1 % | - | |
+| RTT 30 ms, jitter 2 ms, 1M up / 16M down | 15 / 15 ms | 2 ms | 0 | 1 / 16 Mbit/s | ADSL2+ 16/1 |
+| RTT 70 ms, jitter 10 ms, loss 0.3 %, 10M up / 40M down | 35 / 35 ms | 10 ms | 0.3 % | 10 / 40 Mbit/s | LTE |
+| RTT 600 ms, jitter 10 ms, loss 0.5 %, 5M up / 20M down | 300 / 300 ms | 10 ms | 0.5 % | 5 / 20 Mbit/s | GEO satellite |
+| RTT 80 ms, jitter 30 ms, loss 2 %, reorder 1 %, 10M/10M | 40 / 40 ms | 30 ms | 2 % | 10 / 10 Mbit/s | reorder 1 % |
 
 ## Start / Stop
 
-- START sets up the bridge (or IFB) and applies the WAN values.
-- STOP keeps the setup in place but drops all traffic (`netem loss 100 %`); the state shows `STOPPED - NO TRAFFIC`. Value changes while stopped are stored and take effect on START (the web GUI does not apply them while stopped). The red "traffic in, nothing out" warning in the LIVE table is suppressed while stopped.
-- Restore original state removes netem, the bridge or IFB and brings the ports back (see Persistence and restore). To change ports or mode: restore, change, START.
+- START: sets up bridge (or IFB) and applies the values.
+- STOP: setup stays, all traffic is dropped (`netem loss 100 %`); state `STOPPED - NO TRAFFIC`. Value changes while stopped are stored and applied on START.
+- Restore removes netem, bridge / IFB and restores the ports. To change ports or mode: restore, change, START.
 
 ## Applying values
 
-- Changes of WAN values (slider, number field, `-` / `+` buttons, cursor keys, `+`/`-`) are shown at once and applied to the system 0.6 s after the last change, so a fast sequence of changes results in a single tc update. The TUI status line shows "applying in a moment".
-- While a setup is active, every edit is applied; FORWARD LLDP / 802.1X and DISABLE NIC OFFLOADS take effect immediately as well. Unchecking the offloads sets the NIC features back to the values saved before the setup.
+Changes (slider, number field, `-` / `+`, cursor keys) are applied 0.6 s after the last change, one tc update per burst of changes. While a setup is active every edit is applied; FORWARD LLDP / 802.1X and DISABLE NIC OFFLOADS also take effect immediately. Unchecking offloads restores the NIC features saved before the setup.
 
 ## TUI
 
 | Key | Action |
 |-----|--------|
 | Arrows | select parameter / direction |
-| Enter or `e` | edit value |
+| Enter, `e` | edit value |
 | `+` `-` / `]` `[` | step / step x10 |
-| `Space` | select the current value: Up/Down jump between values, Left/Right change it (Left = -, Right = +, PgUp/PgDn = x10), Tab switches the column; Space, Enter or Esc leaves the selection |
-| `l` | mirror edits to the other direction |
+| `Space` | select value: Up/Down jump between values, Left/Right change it (PgUp/PgDn x10), Tab switches column; Space / Enter / Esc leaves |
+| `l` | mirror |
 | `p` | load preset |
-| `b` | setup: choose mode and interfaces, set up (questions are answered with Enter = yes) |
+| `b` | setup: mode, interfaces |
 | `a` | START / STOP |
 | `r` | restore original state |
 | `c` | reset all impairments and MTU |
 | `s` | save config |
-| `f` | fix: re-initialize the USB adapter(s) of the active setup |
-| `q` / Ctrl-C | quit; with an active setup it asks "Reset system (restore original state)?": `y` or Enter = restore and quit, `n` = quit and leave everything as it is |
+| `f` | re-initialize USB adapter(s) of the active setup |
+| `q`, Ctrl-C | quit; with an active setup: "Reset system (restore original state)?" - `y` / Enter = restore and quit, `n` = quit, keep state |
 
-Upper-case letters work like lower-case. At exit the script prints `THX for using wansime.py <version> - www.jeitler.cc`.
-
-Layout: the tables, slider bars and the key bar adapt to the terminal size (minimum 80 columns): the key bar picks the longest label set that fits and spreads it over the whole line. Rows from top to bottom: parameter table, LIVE, INTERFACES (if rows are left), two traffic graphs (needs at least 9 free rows), key bar, status line. The frame is drawn down to the key bar. The status line shows mode, state (ACTIVE / STOPPED / NOT ACTIVE), config (SAVED / MODIFIED), mirror, and messages ("working ...", "applied", errors; errors stay longer).
-
-Colors: green = active/up/changed, red = down/error, white = normal. A red OUT value means traffic comes in but nothing goes out.
+Layout adapts to the terminal (minimum 80 columns). Top to bottom: parameter table, LIVE, INTERFACES, two traffic graphs (at least 9 free rows), key bar, status line (mode, state, config SAVED / MODIFIED, mirror, messages). Red OUT value = traffic comes in, nothing goes out.
 
 ## Web GUI
 
-Port 8082 (`--port`). Header with clock and Nelly (animated SVG, links to https://jeitler.cc/nelly/). Buttons: RESCAN INTERFACES, START / STOP, RESTORE ORIGINAL STATE, SAVE CONFIG, RECOVER USB ADAPTER, preset select (LOAD PRESET), MIRROR, RESET. Checkboxes: FORWARD LLDP / 802.1X, DISABLE NIC OFFLOADS. Mode and port selects with bridge name field.
+Port 8082 (`--port`). Buttons: RESCAN INTERFACES, START / STOP, RESTORE ORIGINAL STATE, SAVE CONFIG, RECOVER USB ADAPTER, LOAD PRESET, MIRROR, RESET. Checkboxes: FORWARD LLDP / 802.1X, DISABLE NIC OFFLOADS. Sections: WAN PARAMETERS, LIVE (IN / OUT rate, netem packets / drops / backlog), TRAFFIC, INTERFACES.
 
-Sections: WAN PARAMETERS (slider + number field + `-` / `+` per parameter and direction, sliders scale with the window width), LIVE (IN / OUT rate, netem packets / drops / backlog), TRAFFIC, INTERFACES (state, speed, MTU, member of, addresses, MAC).
+No login by default: use `--auth USER:PASS` (or env `WANSIM_AUTH`) and/or `--bind 127.0.0.1`.
 
-- No login by default. Use `--auth USER:PASS` (or env `WANSIM_AUTH`) and/or `--bind 127.0.0.1`.
-
-HTTP API (JSON): `GET /api/state`, `GET /api/hist?since=<ts>`; `POST` (`Content-Type: application/json`): `/api/cfg`, `/api/apply`, `/api/stop`, `/api/clear`, `/api/preset`, `/api/recover`, `/api/restore`, `/api/save`, `/api/histreset`.
+HTTP API (JSON): `GET /api/state`, `GET /api/hist?since=<ts>`; `POST` with `Content-Type: application/json`: `/api/cfg`, `/api/apply`, `/api/stop`, `/api/clear`, `/api/preset`, `/api/recover`, `/api/restore`, `/api/save`, `/api/histreset`.
 
 ## Traffic graphs
 
-The script samples the port counters once a second (30 minutes of history, kept in the process, so a reloaded web page keeps its history). Per direction IN (what arrives) and OUT (what passes the simulation) are shown; the difference is what loss, rate limit and drops removed.
+Port counters are sampled once per second (30 min history, kept in the process). Per direction: IN = arriving traffic, OUT = traffic passing the simulation; the difference is removed by loss, rate limit and drops.
 
-- Web GUI: two time graphs (A->B, B->A), range 1 / 5 / 15 / 30 min, current values, peak and totals. The RESET button next to the range selector clears the history and the totals on the server (other open browser windows keep their graph until reloaded).
-- CPU: behind the RESET button the CPU load of the host is shown once a second: whole system, busiest core and the wansime process (percent of one core). Values above 80 % turn red. Forwarding often saturates a single core (soft IRQ) while the total stays low, hence the busiest-core value.
-- TUI: two btop-like braille graphs (white = IN, green = OUT) with an info box (IN, OUT, TOP, totals). They grow with the terminal height and are left out on small terminals. A UTF-8 locale is needed for the braille characters (otherwise `#` / `.` is used).
+- Web GUI: range 1 / 5 / 15 / 30 min, current values, peak, totals. RESET clears history and totals on the server.
+- CPU (behind RESET): whole system, busiest core, wansime process (percent of one core); above 80 % red. Forwarding can saturate a single core (soft IRQ) while the total stays low.
+- TUI: braille graphs (white = IN, green = OUT) with IN, OUT, TOP and totals. Needs a UTF-8 locale, otherwise `#` / `.`.
 
 ## Transparency of the bridge
 
-The bridge runs with STP off, IGMP/MLD snooping off, has no IP address and IPv6 is disabled on it, so it sends nothing of its own. What passes between the two ports (and gets the same delay / loss as normal traffic):
+STP off, IGMP/MLD snooping off, no IP address on `br0`, IPv6 disabled on it.
 
 | Protocol | Passes? |
 |---|---|
 | VLAN tags (802.1Q, QinQ) | yes |
-| STP / RSTP / MSTP BPDUs (01-80-C2-00-00-00) | yes, flooded because STP is off |
-| CDP, VTP, DTP, UDLD, PAgP, PVST+/Rapid-PVST+ (01-00-0C-CC-CC-xx) | yes, ordinary multicast, flooded |
-| LLDP (01-80-C2-00-00-0E), 802.1X EAPOL (01-80-C2-00-00-03), GARP/other link-local frames | yes with FORWARD LLDP / 802.1X checked (default; `group_fwd_mask 0xfff8`) |
-| 802.3x pause (01-80-C2-00-00-01) | no - handled by each NIC itself |
-| LACP / slow protocols (01-80-C2-00-00-02) | no - a Linux bridge cannot forward these (kernel restriction) |
+| STP / RSTP / MSTP BPDUs (01-80-C2-00-00-00) | yes, flooded (STP off) |
+| CDP, VTP, DTP, UDLD, PAgP, PVST+ (01-00-0C-CC-CC-xx) | yes, ordinary multicast |
+| LLDP (01-80-C2-00-00-0E), 802.1X EAPOL (01-80-C2-00-00-03), other link-local | yes with FORWARD LLDP / 802.1X (default; `group_fwd_mask 0xfff8`) |
+| 802.3x pause (01-80-C2-00-00-01) | no, handled by the NIC |
+| LACP / slow protocols (01-80-C2-00-00-02) | no, a Linux bridge cannot forward them |
 
-Offloads (gro/gso/tso/lro) are switched off on the bridge ports by default so that packet sizes and timing stay realistic (setup checkbox / question, config key `offloads_off`).
+Offloads (gro/gso/tso/lro) are disabled on the bridge ports by default (config key `offloads_off`).
 
 ## Persistence and restore
 
 - Config: `/etc/wansim/config.json` (TUI `s` / web SAVE CONFIG).
-- Original state: before changing anything the script stores a snapshot in `/var/lib/wansim/original.json`. Restore removes netem, the bridge or IFB, and brings the ports back (IP addresses, routes, MTU, offloads, NetworkManager managed state). Command line: `sudo wansime --restore`.
-- If the bridge cannot be removed, the snapshot is kept and restore can be run again. A reboot clears everything that is not saved as a service.
+- Snapshot of the original state: `/var/lib/wansim/original.json`, written before the first change. Restore removes netem, bridge / IFB and restores IP addresses, routes, MTU, offloads and the NetworkManager managed state: `sudo wansime --restore`.
+- If the bridge cannot be removed the snapshot is kept; restore can be repeated.
 - `--apply` applies the saved config once and exits.
 
 ## USB adapter recovery
 
-While a setup is active, USB network adapters (e.g. RTL8153 / `r8152`) are checked every few seconds. If the driver no longer reaches the adapter (`ethtool` reports "No such device") for about 6 s, the script re-authorizes the USB device (like unplug/replug) and, if needed, reloads the driver module. Then it puts the port back into the bridge (or re-attaches the IFB redirect) and re-applies the WAN parameters. At most 3 automatic attempts per 10 minutes. Manual: web button RECOVER USB ADAPTER, TUI key `f`. Ports that are not USB adapters are not touched.
+USB adapters (e.g. RTL8153 / `r8152`) are checked every few seconds while a setup is active. If `ethtool` reports "No such device" for about 6 s, the USB device is re-authorized (like unplug/replug), the driver module is reloaded if needed, the port is put back into the bridge (or IFB redirect) and the WAN values are re-applied. Maximum 3 automatic attempts per 10 minutes. Manual: web RECOVER USB ADAPTER, TUI `f`. Non-USB ports are not touched.
 
 ## Single instance
 
-At start the script looks for other running copies (also under the former name `wansim.py`), lists them (PID, terminal, state) and asks: `k` kills the old process(es) and starts, `a` aborts (default). Without a terminal it exits with an error; `--kill-old` stops them without asking. An active systemd service `wansime.service` is stopped with `systemctl`. Killing a process does not change the network state; use `--restore` for that.
+At start other running copies (also `wansim.py`) are listed; `k` kills them, `a` aborts (default). Without a terminal it exits with an error; `--kill-old` kills without asking. The `wansime.service` is stopped via `systemctl`. Killing a process does not change the network state; use `--restore`.
 
 ## Command line
 
@@ -186,24 +182,24 @@ wansime.py [--daemon] [--no-web] [--port 8082] [--bind 0.0.0.0] [--auth USER:PAS
 
 | Option | Description |
 |---|---|
-| `--daemon` | Headless, web GUI only (default without a terminal) |
+| `--daemon` | Headless, web GUI only (default without terminal) |
 | `--no-web` | TUI without web GUI |
 | `--port`, `--bind` | Web port (default 8082), bind address (default 0.0.0.0) |
-| `--auth USER:PASS` | HTTP basic auth for the web GUI (or env `WANSIM_AUTH`) |
+| `--auth USER:PASS` | HTTP basic auth (or env `WANSIM_AUTH`) |
 | `--install` | Install required packages / kernel modules |
-| `--install-service`, `--remove-service` | Install and start / stop and remove the systemd service `wansime.service` |
+| `--install-service`, `--remove-service` | Install and start / stop and remove `wansime.service` |
 | `--apply` | Apply the saved config once and exit |
 | `--restore` | Restore the original state and exit |
-| `--status` | Show the current state and exit |
+| `--status` | Print the current state and exit |
 | `--all-ifaces` | Also list virtual Ethernet interfaces |
-| `--kill-old` | Stop other running instances without asking |
+| `--kill-old` | Stop other instances without asking |
 | `--version` | Print the version |
 
 ## Notes
 
-- Bridge mode flushes the IP configuration of both ports; NetworkManager ports are set to unmanaged meanwhile. Use a third interface (e.g. WLAN) for management. If a port carries your session or the default route, the TUI / web GUI asks for confirmation first.
-- Single mode impairs all traffic of the interface, including your own management session on it.
-- Every system command has a timeout (8-15 s). If a NIC hangs (e.g. a USB adapter that resets), operations report an error instead of blocking, and the TUI and web GUI stay responsive and show `busy`.
+- Bridge mode flushes the IP configuration of both ports and sets NetworkManager ports to unmanaged. Use a third interface for management; if a port carries your session or the default route, the TUI / web GUI asks for confirmation.
+- Single mode impairs all traffic of the interface, including your own management session.
+- System commands have a timeout of 8-15 s; a hanging NIC produces an error and state `busy` instead of blocking the UI.
 
 ## Project structure
 
