@@ -1,9 +1,42 @@
-# wansime.py v1.60 - WAN Simulation made easy
+# wansime — WAN Simulation made easy
 
-WAN simulator for Linux / Raspberry Pi based on `tc netem`, with a curses TUI and a web GUI. Delay, jitter, loss, reorder, duplicate, corrupt, rate limit and MTU per direction, as a transparent L2 bridge (or on a single interface), with live traffic graphs.
-by Ewald Jeitler - https://www.jeitler.cc
+Single-file Python tool (standard library only) that simulates WAN links on Linux / Raspberry Pi with `tc netem`: delay, jitter, loss, reorder, duplicate, corrupt, rate limit and MTU per direction. It runs as a transparent L2 bridge between two Ethernet ports (or on a single interface) and is controlled from a full-screen terminal UI (TUI) and a web GUI at the same time, both with live traffic graphs.
 
-Single file, Python standard library only (Python 3.8+). Root is required; without root the script restarts itself through `sudo` and asks for the sudo password (interactive terminal only, otherwise it prints a hint and exits).
+By Ewald Jeitler - https://www.jeitler.cc
+
+Current version: v1.60
+
+## Features
+
+- Bridge mode: transparent L2 bridge between two ports, impairments per direction (A->B and B->A)
+- Single mode: one interface, OUT = egress, IN = ingress redirected to an IFB device
+- Delay, jitter, loss, consecutive (burst) loss, reorder, duplicate, corrupt, rate limit, MTU, all per direction
+- Presets (Metro, Transatlantic, DSL, LTE, Satellite, Congested, ...)
+- START / STOP without tearing down the setup; restore the original network state at any time
+- Changes are applied live (debounced, 0.6 s)
+- Bridge passes VLAN, STP, CDP, VTP, LLDP and 802.1X EAPOL frames
+- Live traffic graphs (IN / OUT per direction), CPU load, interface table in TUI and web GUI
+- USB network adapter watchdog and recovery (RTL8153 / `r8152`)
+- Runs headless as a systemd service
+- Python 3.8+, Linux (tested on Raspberry Pi 5), root required
+
+## Installation / Update
+
+```
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/ewaldj/wansime/main/e-install.sh)"
+```
+
+Installs `wansime.py` to `/usr/local/bin` as command `wansime`; running it again updates. Manual: download `wansime.py` from https://github.com/ewaldj/wansime, `chmod +x wansime.py`.
+
+### Requirements
+
+```bash
+sudo wansime.py --install            # apt-get/dnf/yum: iproute2, ethtool, kernel modules sch_netem, bridge, ifb
+```
+
+At every start the script checks the requirements; if something is missing it lists it and offers to install it (`Install now? [Y/n]`). Without a terminal (service) it only reports the missing parts and exits.
+
+Root is required. Without root the script restarts itself through `sudo` and asks for the sudo password (interactive terminal only, otherwise it prints a hint and exits).
 
 ## Screenshots
 
@@ -17,6 +50,16 @@ TUI (180 x 46 terminal, the layout adapts to the terminal size):
 
 The screenshots show example values and simulated traffic (A->B about 400 Mbit/s, B->A about 25 Mbit/s, 40 ms delay, 5 ms jitter, 0.1 % loss).
 
+## Quick Start
+
+```bash
+sudo wansime                         # TUI + web GUI on http://<ip>:8082/
+sudo wansime --install-service       # systemd service wansime.service (headless, web GUI on port 8082)
+sudo wansime --restore               # restore the original network state
+```
+
+Workflow: choose mode and ports (TUI `b` / web setup row) -> START -> change WAN values (applied live) -> STOP / START as needed -> restore original state when finished.
+
 ## Modes
 
 | Mode | What it does |
@@ -25,18 +68,6 @@ The screenshots show example values and simulated traffic (A->B about 400 Mbit/s
 | **single** | One interface, no bridge. **OUT** impairs locally generated traffic (egress). **IN** impairs locally received traffic (ingress redirected to an IFB device). |
 
 Directions are labelled with the interface names (e.g. `eth0 -> eth1`) in the GUI and the TUI.
-
-## Quick start
-
-```bash
-sudo ./wansime.py --install          # apt-get/dnf/yum: iproute2, ethtool, kernel modules sch_netem, bridge, ifb
-sudo ./wansime.py                    # TUI + web GUI on http://<ip>:8082/
-sudo ./wansime.py --install-service  # systemd service wansime.service (headless, web GUI on port 8082)
-```
-
-At every start the script checks the requirements; if something is missing it lists it and offers to install it (`Install now? [Y/n]`). Without a terminal (service) it only reports the missing parts and exits. Without a terminal the script starts headless automatically.
-
-Workflow: choose mode and ports (TUI `b` / web setup row) -> START -> change WAN values (applied live) -> STOP / START as needed -> restore original state when finished.
 
 ## Parameters (per direction)
 
@@ -104,7 +135,6 @@ Port 8082 (`--port`). Header with clock and Nelly (animated SVG, links to https:
 Sections: WAN PARAMETERS (slider + number field + `-` / `+` per parameter and direction, sliders scale with the window width), LIVE (IN / OUT rate, netem packets / drops / backlog), TRAFFIC, INTERFACES (state, speed, MTU, member of, addresses, MAC).
 
 - No login by default. Use `--auth USER:PASS` (or env `WANSIM_AUTH`) and/or `--bind 127.0.0.1`.
-- The favicon is the paw icon of eping.py.
 
 HTTP API (JSON): `GET /api/state`, `GET /api/hist?since=<ts>`; `POST` (`Content-Type: application/json`): `/api/cfg`, `/api/apply`, `/api/stop`, `/api/clear`, `/api/preset`, `/api/recover`, `/api/restore`, `/api/save`, `/api/histreset`.
 
@@ -115,13 +145,6 @@ The script samples the port counters once a second (30 minutes of history, kept 
 - Web GUI: two time graphs (A->B, B->A), range 1 / 5 / 15 / 30 min, current values, peak and totals. The RESET button next to the range selector clears the history and the totals on the server (other open browser windows keep their graph until reloaded).
 - CPU: behind the RESET button the CPU load of the host is shown once a second: whole system, busiest core and the wansime process (percent of one core). Values above 80 % turn red. Forwarding often saturates a single core (soft IRQ) while the total stays low, hence the busiest-core value.
 - TUI: two btop-like braille graphs (white = IN, green = OUT) with an info box (IN, OUT, TOP, totals). They grow with the terminal height and are left out on small terminals. A UTF-8 locale is needed for the braille characters (otherwise `#` / `.` is used).
-
-## Persistence and restore
-
-- Config: `/etc/wansim/config.json` (TUI `s` / web SAVE CONFIG).
-- Original state: before changing anything the script stores a snapshot in `/var/lib/wansim/original.json`. Restore removes netem, the bridge or IFB, and brings the ports back (IP addresses, routes, MTU, offloads, NetworkManager managed state). Command line: `sudo ./wansime.py --restore`.
-- If the bridge cannot be removed, the snapshot is kept and restore can be run again. A reboot clears everything that is not saved as a service.
-- `--apply` applies the saved config once and exits.
 
 ## Transparency of the bridge
 
@@ -138,6 +161,13 @@ The bridge runs with STP off, IGMP/MLD snooping off, has no IP address and IPv6 
 
 Offloads (gro/gso/tso/lro) are switched off on the bridge ports by default so that packet sizes and timing stay realistic (setup checkbox / question, config key `offloads_off`).
 
+## Persistence and restore
+
+- Config: `/etc/wansim/config.json` (TUI `s` / web SAVE CONFIG).
+- Original state: before changing anything the script stores a snapshot in `/var/lib/wansim/original.json`. Restore removes netem, the bridge or IFB, and brings the ports back (IP addresses, routes, MTU, offloads, NetworkManager managed state). Command line: `sudo wansime --restore`.
+- If the bridge cannot be removed, the snapshot is kept and restore can be run again. A reboot clears everything that is not saved as a service.
+- `--apply` applies the saved config once and exits.
+
 ## USB adapter recovery
 
 While a setup is active, USB network adapters (e.g. RTL8153 / `r8152`) are checked every few seconds. If the driver no longer reaches the adapter (`ethtool` reports "No such device") for about 6 s, the script re-authorizes the USB device (like unplug/replug) and, if needed, reloads the driver module. Then it puts the port back into the bridge (or re-attaches the IFB redirect) and re-applies the WAN parameters. At most 3 automatic attempts per 10 minutes. Manual: web button RECOVER USB ADAPTER, TUI key `f`. Ports that are not USB adapters are not touched.
@@ -145,12 +175,6 @@ While a setup is active, USB network adapters (e.g. RTL8153 / `r8152`) are check
 ## Single instance
 
 At start the script looks for other running copies (also under the former name `wansim.py`), lists them (PID, terminal, state) and asks: `k` kills the old process(es) and starts, `a` aborts (default). Without a terminal it exits with an error; `--kill-old` stops them without asking. An active systemd service `wansime.service` is stopped with `systemctl`. Killing a process does not change the network state; use `--restore` for that.
-
-## Notes
-
-- Bridge mode flushes the IP configuration of both ports; NetworkManager ports are set to unmanaged meanwhile. Use a third interface (e.g. WLAN) for management. If a port carries your session or the default route, the TUI / web GUI asks for confirmation first.
-- Single mode impairs all traffic of the interface, including your own management session on it.
-- Every system command has a timeout (8-15 s). If a NIC hangs (e.g. a USB adapter that resets), operations report an error instead of blocking, and the TUI and web GUI stay responsive and show `busy`.
 
 ## Command line
 
@@ -160,4 +184,33 @@ wansime.py [--daemon] [--no-web] [--port 8082] [--bind 0.0.0.0] [--auth USER:PAS
           [--apply] [--restore] [--status] [--all-ifaces] [--kill-old] [--version]
 ```
 
-`--daemon` headless (web GUI only), `--no-web` TUI without web GUI, `--status` prints the current state, `--all-ifaces` also lists virtual Ethernet interfaces.
+| Option | Description |
+|---|---|
+| `--daemon` | Headless, web GUI only (default without a terminal) |
+| `--no-web` | TUI without web GUI |
+| `--port`, `--bind` | Web port (default 8082), bind address (default 0.0.0.0) |
+| `--auth USER:PASS` | HTTP basic auth for the web GUI (or env `WANSIM_AUTH`) |
+| `--install` | Install required packages / kernel modules |
+| `--install-service`, `--remove-service` | Install and start / stop and remove the systemd service `wansime.service` |
+| `--apply` | Apply the saved config once and exit |
+| `--restore` | Restore the original state and exit |
+| `--status` | Show the current state and exit |
+| `--all-ifaces` | Also list virtual Ethernet interfaces |
+| `--kill-old` | Stop other running instances without asking |
+| `--version` | Print the version |
+
+## Notes
+
+- Bridge mode flushes the IP configuration of both ports; NetworkManager ports are set to unmanaged meanwhile. Use a third interface (e.g. WLAN) for management. If a port carries your session or the default route, the TUI / web GUI asks for confirmation first.
+- Single mode impairs all traffic of the interface, including your own management session on it.
+- Every system command has a timeout (8-15 s). If a NIC hangs (e.g. a USB adapter that resets), operations report an error instead of blocking, and the TUI and web GUI stay responsive and show `busy`.
+
+## Project structure
+
+```
+├── wansime.py            # simulator: TUI + web GUI + bridge / netem control
+├── e-install.sh          # installer / updater
+├── screenshots/          # images for this README
+├── LICENSE
+└── README.md
+```
